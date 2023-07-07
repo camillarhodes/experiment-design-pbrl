@@ -73,12 +73,12 @@ def get_action_preferences(X: np.ndarray, reward: np.ndarray, n_states: int, n_a
             for action_plus in range(n_actions):
                 for action_minus in range(action_plus+1, n_actions):
                     index_in_X = int((h*n_states+s)*(zero_action+n_actions*(n_actions-1)/2) \
-                            + action_plus + action_minus -1 + zero_action)
+                            + action_plus*(2*n_actions - action_plus-1)/2 + action_minus + zero_action - action_plus) -1
                     vec = np.zeros(X.shape[1])
-                    vec[int((h*n_states+s)*(n_actions*(n_actions-1)/2))+action_plus] = 1
-                    vec[int((h*n_states+s)*(n_actions*(n_actions-1)/2))+action_minus] = -1
+                    vec[(h*n_states+s)*n_actions +  action_plus] = 1
+                    vec[(h*n_states+s)*n_actions +  action_minus] = -1
                     if not all(X[index_in_X] == vec):
-                        import pdb; pdb.set_trace()
+                        import ipdb; ipdb.set_trace()
                     p = 0.5*(reward[h, s, action_plus] - reward[h, s, action_minus] + 1)
                     Y[index_in_X] =  2*np.random.binomial(1, p, 1)-1
                     #Q[index_in_X] =  reward[h, s, action_plus] - reward[h, s, action_minus]
@@ -86,7 +86,6 @@ def get_action_preferences(X: np.ndarray, reward: np.ndarray, n_states: int, n_a
 
 def perform_uniform_allocation(X: np.ndarray, reward: np.ndarray, n_states: int, n_actions: int, horizon: int, zero_action: int = 1, n_rounds: int=1, verbose=True) -> np.ndarray:
     Y = None
-    print(verbose)
     it = tqdm.tqdm(range(n_rounds)) if verbose else range(n_rounds)
     for r in it:
         Y_round = get_action_preferences(X, reward, n_states, n_actions, horizon, zero_action)
