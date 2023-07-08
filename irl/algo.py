@@ -5,11 +5,11 @@ from typing import Tuple
 
 
 
-def get_design_matrix(horizo: int, n_states: int, n_actions: int, zero_action: int = 1) -> np.ndarray:
-    X = get_X_matrix(n_states, n_actions, horizon, zero_action)
+def get_design_matrix(horizon: int, n_states: int, n_actions: int, zero_action: int = 1) -> np.ndarray:
+    X = get_X_matrix(horizon, n_states, n_actions, zero_action)
     return X.T@X
 
-def get_X_matrix(horizo: int, n_states: int, n_actions: int, zero_action: int = 1, rounds: int = 1) -> np.ndarray:
+def get_X_matrix(horizon: int, n_states: int, n_actions: int, zero_action: int = 1) -> np.ndarray:
 
     n = 1
     mat = np.zeros((n, n_actions))
@@ -54,7 +54,7 @@ def perform_uniform_allocation(X: np.ndarray, reward: np.ndarray, horizon: int, 
     Y = None
     it = tqdm.tqdm(range(n_rounds)) if verbose else range(n_rounds)
     for r in it:
-        Y_round = get_action_preferences(X, reward, n_states, n_actions, horizon, zero_action)
+        Y_round = get_action_preferences(X, reward, horizon, n_states, n_actions, zero_action)
         if Y is None:
             Y = Y_round
         else:
