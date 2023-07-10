@@ -45,5 +45,4 @@ def policy_evaluation(
     rewards: np.ndarray,
     policy: np.ndarray,
 ):
-    _, v, _ = value_iteration(transitions, rewards, policy=policy)
-    return v
+    return value_iteration(transitions, rewards, policy=policy)

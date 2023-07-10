@@ -6,11 +6,11 @@ from typing import Tuple
 
 
 
-def get_design_matrix(horizon: int, n_states: int, n_actions: int, zero_action: int = 1) -> np.ndarray:
-    X = get_X_matrix(horizon, n_states, n_actions, zero_action)
+def get_design_matrix(horizon: int, n_states: int, n_actions: int) -> np.ndarray:
+    X = get_X_matrix(horizon, n_states, n_actions)
     return X.T@X
 
-def get_X(horizon: int, n_states: int, n_actions: int, zero_action: int = 1) -> np.ndarray:
+def get_X(horizon: int, n_states: int, n_actions: int) -> np.ndarray:
 
     states_eye = np.eye(n_states)
     horizon_eye = np.eye(horizon)
@@ -36,7 +36,7 @@ def get_X(horizon: int, n_states: int, n_actions: int, zero_action: int = 1) -> 
     X =  np.kron(horizon_eye, np.kron(states_eye, action_mat))
     return X, X_zero_actions
 
-def get_preference_probabilities(X: np.ndarray, reward: np.ndarray, horizon: int, n_states: int, n_actions: int, zero_action: int = 1, fast=True) -> np.ndarray:
+def get_preference_probabilities(X: np.ndarray, reward: np.ndarray, horizon: int, n_states: int, n_actions: int) -> np.ndarray:
 
     assert (np.max(reward) <= 0.5) and (np.min(reward) >= -0.5)
     Y = None
@@ -52,7 +52,7 @@ def get_preference_probabilities(X: np.ndarray, reward: np.ndarray, horizon: int
                     #Q[index_in_X] =  reward[h, s, action_plus] - reward[h, s, action_minus]
     return prob
 
-def perform_uniform_allocation(X: np.ndarray, X_zero_actions: np.ndarray, reward: np.ndarray, horizon: int,  n_states: int, n_actions: int, zero_action: int = 1, eps: float=0.01, delta: float=0.05, verbose=True) -> np.ndarray:
+def perform_uniform_allocation(X: np.ndarray, X_zero_actions: np.ndarray, reward: np.ndarray, horizon: int,  n_states: int, n_actions: int, eps: float=0.01, delta: float=0.05, verbose=True) -> np.ndarray:
 
     Y = np.zeros(X.shape[0])
     step = len(Y)
@@ -64,7 +64,7 @@ def perform_uniform_allocation(X: np.ndarray, X_zero_actions: np.ndarray, reward
         print(f'Number of rounds: {n_rounds}')
 
 
-    prob = get_preference_probabilities(X, reward, horizon, n_states, n_actions, zero_action)
+    prob = get_preference_probabilities(X, reward, horizon, n_states, n_actions)
 
     #prob = np.tile(prob, step)
     rng = range(0, n_rounds, step)
