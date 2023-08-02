@@ -5,6 +5,7 @@ import itertools
 
 from typing import Tuple, Optional
 from helpers import check_transitions_rewards
+from rl.value_iteration import value_iteration, policy_evaluation
 
 
 def get_X(horizon: int, n_states: int, n_actions: int) -> np.ndarray:
@@ -84,7 +85,7 @@ def perform_uniform_allocation(
     prob = get_preference_probabilities(reward, horizon, n_states, n_actions)
 
     rng = range(0, n_rounds, step)
-    it = tqdm.tqdm(rng) if verbose else range(rng)
+    it = tqdm.tqdm(rng) if verbose else rng
     for r in it:
         Y_round = 2 * np.random.binomial(1, prob) - 1
         Y += Y_round
@@ -96,13 +97,238 @@ def perform_uniform_allocation(
     r_hat = np.linalg.inv(X_combined.T @ X_combined) @ X_combined.T @ Y
     return r_hat
 
-def perform_RAGE(transitions: np.ndarray, r_hat: np.ndarray, init_state_dist: np.ndarray
+
+def perform_RAGE(
+        X: np.ndarray,
+        X_zero_actions: np.ndarray,
+        reward: np.ndarray,
+        horizon: int,
+        n_states: int,
+        n_actions: int,
+        #reward_hat: np.ndarray,
+        transitions: np.ndarray,
+        init_state_dist: np.ndarray,
+        verbose: bool = True,
         ) -> np.ndarray:
-    opt = Optimizer()
-    y1, b, A = opt._get_problem_params(transitions, r_hat, init_state_dist) 
-    _ = opt._solve_opt_problem(y1, b, A)
+
+    np.random.seed(42)
+
+    rage_max_iter = 30
+    X_combined = np.concatenate([X_zero_actions, X], axis=0)
+    rng = range(1, rage_max_iter)
+    it = tqdm.tqdm(rng) if verbose else rng
+    for rage_iter in it:
+        r_hat = np.random.rand(*reward.shape)
+
+        _, V_hat, _ = value_iteration(transitions, r_hat)
+        V_hat_opt = init_state_dist @ V_hat[0]
+        V_hat_target = V_hat_opt - 2**(-(rage_iter+2))
+
+        design = get_optimal_design(X_combined, r_hat, V_hat_target, horizon, n_states, n_actions, transitions, init_state_dist, verbose)
 
     return None
+
+def get_optimal_design(
+        X_combined: np.ndarray,
+        r_hat: np.ndarray,
+        V_hat_target: float,
+        horizon: int,
+        n_states: int,
+        n_actions: int,
+        transitions: np.ndarray,
+        init_state_dist: np.ndarray,
+        verbose: bool = True,
+        ) -> np.ndarray:
+    
+    design = np.ones(len(X_combined))
+    design /= design.sum()
+
+    max_iter = 1000
+    batch_size = 20
+
+    rng = range(1, max_iter)
+    it = tqdm.tqdm(rng) if verbose else rng
+
+    for iter in it:
+        design_inv = np.linalg.inv(X_combined.T@ np.diag(design) @ X_combined)
+        # compute gradient with respect to lambda and solve linear problem
+        g_indices = []
+        for i in range(batch_size):
+            y1, y2 = get_opt_y1_y2(transitions, init_state_dist, r_hat, V_hat_target, design_inv, horizon, n_states, n_actions)
+            #import ipdb;  ipdb.set_trace()
+            g = ((X_combined @ design_inv @ (y1-y2)) * (X_combined @ design_inv @ (y1-y2))).flatten()
+            g_idx = np.argmax(g)
+            g_indices.append(g_idx)
+
+        if verbose and iter % 200 == 1 and False:
+            true_uncertainty = get_true_uncertainty(transitions, init_state_dist, design_inv, horizon, n_states, n_actions)
+            print(f'Current true uncertainty: {true_uncertainty}')
+            print(f'Current estimated uncertainty: {(y1-y2).T@design_inv@(y1-y2)}')
+
+        # perform frank-wolfe update with fixed stepsize
+        gamma = (2 / (iter + 2))/len(g_indices)
+        relative_sum = 0
+        for g_idx in g_indices:
+            design_update = -gamma * design
+            design_update[g_idx] += gamma
+            design += design_update
+            relative_sum += np.linalg.norm(design_update) / (np.linalg.norm(design)) 
+
+
+        
+        relative = relative_sum/batch_size
+
+        if relative < 0.001:  # stop if change in last step is small
+            print(f'Frank Wolfe detected relative < 0.001, aborting')
+            if verbose and False:
+                true_uncertainty = get_true_uncertainty(transitions, init_state_dist, design_inv, horizon, n_states, n_actions)
+                print(f'Current true uncertainty: {true_uncertainty}')
+            break
+
+    print(f'Frank Wolfe finished after iter {iter}')
+    idx_fix = np.where(design < 1e-5)[0]
+    drop_total = design[idx_fix].sum()
+    design[idx_fix] = 0
+    design[np.argmax(design)] += drop_total
+    return design
+
+def get_opt_y1_y2(
+        transitions: np.ndarray,
+        init_state_dist: np.ndarray,
+        r_hat: np.ndarray,
+        V_hat_target: float,
+        design_inv: np.ndarray,
+        horizon: int,
+        n_states: int,
+        n_actions: int,
+        ):
+
+    def get_constrained_policy(rew):
+        left = 0
+        right = 0
+        tol = 0.01
+        pi = value_iteration(transitions, rew+right*r_hat)[2]
+        while policy_evaluation(transitions, r_hat, pi)[1][0] @ init_state_dist < V_hat_target:
+            if right == 0:
+                right = 1
+            else:
+                right *= 2
+            pi = value_iteration(transitions, rew+right*r_hat)[2]
+
+        while right - left > tol:
+            mid = (right + left)/2
+            pi = value_iteration(transitions, rew+mid*r_hat)[2]
+            V_hat_current = policy_evaluation(transitions, r_hat, pi)[1][0] @ init_state_dist
+            if V_hat_current < V_hat_target:
+                left = mid
+            else:
+                right = mid
+        
+        if right != 0:
+            pi =  value_iteration(transitions, rew+right*r_hat)[2]
+        assert policy_evaluation(transitions, r_hat, pi)[1][0] @ init_state_dist >= V_hat_target
+        return pi
+
+
+
+    
+    eigenvalues, eigenvectors=np.linalg.eigh(design_inv)
+    v = eigenvectors[np.random.choice(np.arange(len(eigenvalues)), p=eigenvalues/np.sum(eigenvalues))]
+    v = v.reshape((horizon, n_states, n_actions))
+    pi_y1 = get_constrained_policy(v)
+    pi_y2 = get_constrained_policy(-v)
+
+    y1 = vectorize_policy(pi_y1, transitions, init_state_dist, horizon, n_states, n_actions)
+    y2 = vectorize_policy(pi_y2, transitions, init_state_dist, horizon, n_states, n_actions)
+
+    return y1, y2
+
+def get_true_uncertainty(
+        transitions: np.ndarray,
+        init_state_dist: np.ndarray,
+        design_inv: np.ndarray,
+        horizon: int,
+        n_states: int,
+        n_actions: int,
+
+        ):
+
+    import string
+    digs = string.digits + string.ascii_letters
+
+
+    def int2base(x, base, pad_to_len):
+        if x < 0:
+            sign = -1
+        elif x == 0:
+            return '0'*pad_to_len
+        else:
+            sign = 1
+    
+        x *= sign
+        digits = []
+    
+        while x:
+            digits.append(digs[x % base])
+            x = x // base
+    
+        if sign < 0:
+            digits.append('-')
+    
+        digits.reverse()
+        ret = ''.join(digits)
+        if len(ret) < pad_to_len:
+            ret = '0'*(pad_to_len-len(ret))+ret
+    
+        return ret
+    
+    largest = 0
+    for i in range(n_actions**(n_states*horizon)):
+        pi_y1 = np.array(list((int2base(i,n_actions,horizon*n_states))),dtype=int).reshape((horizon,n_states))
+        for j in range(i,n_actions**(n_states*horizon)):
+            pi_y2 = np.array(list((int2base(j,n_actions,horizon*n_states))),dtype=int).reshape((horizon,n_states))
+            y1 = vectorize_policy(pi_y1, transitions, init_state_dist, horizon, n_states, n_actions)
+            y2 = vectorize_policy(pi_y2, transitions, init_state_dist, horizon, n_states, n_actions)
+            if (y1-y2).T @ design_inv @ (y1-y2) > largest:
+                largest = (y1-y2).T @ design_inv @ (y1-y2) 
+    return largest
+
+
+def vectorize_policy(
+        pi: np.ndarray, transitions: np.ndarray,
+        init_state_dist: np.ndarray,
+        horizon: int,
+        n_states: int,
+        n_actions: int,
+        ):
+
+    y = np.zeros((horizon*n_states*n_actions))
+
+
+    one_hot_actions = np.eye(n_actions)
+
+    y_prev_state_action_dist = (one_hot_actions[pi[0]] * init_state_dist[:,None]).reshape(-1)
+    y[:n_states*n_actions] = y_prev_state_action_dist
+
+    transitions = transitions.reshape((horizon, n_states*n_actions, n_states))
+
+    for h in range(1, horizon):
+        #for h in range(1, 2):
+        y_current_state_dist = y_prev_state_action_dist.T @ transitions[h-1]
+
+        y_current_state_action_dist = (one_hot_actions[pi[h]] * y_current_state_dist[:, None]).reshape(-1)
+
+        y[h*n_states*n_actions:(h+1)*n_states*n_actions] = y_current_state_action_dist
+
+        y_prev_state_action_dist = y_current_state_action_dist
+
+    return y
+
+
+
+
+
+
 
 
 class Optimizer:
@@ -116,18 +342,24 @@ class Optimizer:
 
     def _solve_opt_problem(
             self,
-            y1: np.ndarray,
+            y1: cp.Variable,
+            y2: cp.Variable,
+            y1_det,
+            y2_det,
             b: np.ndarray,
-            A: np.ndarray
+            A: np.ndarray,
+            v: np.ndarray
             ):
 
         # Objective
-        #f = y1.T @ y1
-        f = 1
-        objective = cp.Minimize(f)
+        f = (y1-y2).T@v
+        #f = 1
+        objective = cp.Maximize(f)
 
         # Constraints
-        constraints = [A @ y1 == b, y1 >= 1e-24]
+        constraints = [A @ y1 == b, y1 >= 0, A @ y2 == b, y2 >= 0]
+        constraints += [A @ y1_det == b, y1_det >= 0, A @ y2_det == b, y2_det >= 0]
+        constraints += [y1_det.T@np.eye(400)@y1_det >= 40]
 
         #if use_eps_const:
         #    c_ = cp.vstack([c, np.ones((1, 1))])
@@ -139,9 +371,9 @@ class Optimizer:
         prob = cp.Problem(objective, constraints)
 
         # Solve thr problem 
-        #eps = prob.solve(solver=cp.SCS, dqcp=True)
-        obj_value = prob.solve()
-        import ipdb; ipdb.set_trace()
+        eps = prob.solve()
+        #obj_value = prob.solve(gp=True)
+        # may vary
         return None
 
 
@@ -174,7 +406,10 @@ class Optimizer:
         # Variables
         mu_size = horizon * n_states * n_actions
         #y_size = horizon * n_states + horizon + 1
-        mu = cp.Variable(mu_size, pos=True)
+        mu1 = cp.Variable(mu_size, pos=True)
+        mu2 = cp.Variable(mu_size, pos=True)
+        mu1_det = cp.Variable(mu_size, pos=True)
+        mu2_det = cp.Variable(mu_size, pos=True)
         #y = cp.Variable(y_size)
 
         ## b vector
@@ -267,6 +502,6 @@ class Optimizer:
         #A4 = A_list1[-1]
 
         #return mu, y, b, c, bb_, A1, A2, A3, A4
-        return mu, bb_, A2
+        return mu1, mu2, mu1_det, mu2_det, bb_, A2
 
 
