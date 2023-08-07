@@ -11,6 +11,14 @@ def random_argmax(array, axis=None):
         axis=axis,
     )
 
+def tie_breaker_argmax(array, array_tie_breaker, axis=None):
+    """Argmax with given tie breaking."""
+    amax = np.amax(array, axis=axis, keepdims=True)
+    return np.argmax(
+        array + np.nan_to_num(-np.inf) * (array != amax) + array_tie_breaker * (array == amax),
+        axis=axis,
+    )
+
 
 def check_transitions_rewards(
     transitions: np.ndarray, rewards: np.ndarray

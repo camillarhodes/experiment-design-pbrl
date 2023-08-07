@@ -6,6 +6,7 @@ from helpers import (
     check_transitions_rewards,
     ensure_policy_stochastic,
     random_argmax,
+    tie_breaker_argmax,
 )
 
 
@@ -13,8 +14,15 @@ def value_iteration(
     transitions: np.ndarray,
     rewards: np.ndarray,
     policy: Optional[np.ndarray] = None,
+    rewards_tie_breaker: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Perform value iteration"""
+
+    assert not all(x is not None for x in [policy, rewards_tie_breaker])
+
+    if rewards_tie_breaker is not None:
+        q_opt_tie_breaker, _, _ = value_iteration(transitions, rewards_tie_breaker)
+
     horizon, n_states, n_actions = check_transitions_rewards(transitions, rewards)
 
     if policy is not None:
@@ -35,7 +43,10 @@ def value_iteration(
         pi_opt = policy
     else:
         v_opt = np.max(q_opt, axis=2)
-        pi_opt = random_argmax(q_opt, axis=2)
+        if rewards_tie_breaker is not None:
+            pi_opt = tie_breaker_argmax(q_opt, q_opt_tie_breaker, axis=2)
+        else:
+            pi_opt = random_argmax(q_opt, axis=2)
 
     return q_opt, v_opt, pi_opt
 
