@@ -5,7 +5,7 @@ from typing import Tuple
 
 
 def random_mdp(
-        horizon:int, n_states: int, n_actions: int, non_reachable_states: int = 0, zero_action: int = 1
+        horizon:int, n_states: int, n_actions: int, non_reachable_states: int = 0, zero_action: bool = True
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
     # Transition model

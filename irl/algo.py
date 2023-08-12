@@ -14,6 +14,7 @@ def get_X(horizon: int, n_states: int, n_actions: int) -> np.ndarray:
     vec = np.zeros(n_actions)
     vec[0] = 1
     X_zero_actions = np.kron(horizon_eye, np.kron(states_eye, vec))
+    #X_zero_actions = np.kron(horizon_eye,  vec)
 
     n = 1
     action_mat = np.zeros((n, n_actions))
@@ -29,7 +30,23 @@ def get_X(horizon: int, n_states: int, n_actions: int) -> np.ndarray:
             n += 1
     action_mat = action_mat[1:, :]
 
+    #state_action_mat = np.zeros((n, n_states*n_actions))
+    #for action_plus in range(n_states*n_actions):
+    #    for action_minus in range(action_plus + 1, n_states*n_actions):
+    #        vec = np.zeros(n_states*n_actions)
+    #        vec[action_plus] = 1
+    #        vec[action_minus] = -1
+    #        state_action_mat2 = np.zeros((n + 1, n_states*n_actions))
+    #        state_action_mat2[:-1, :] = state_action_mat
+    #        state_action_mat2[-1, :] = vec
+    #        state_action_mat = state_action_mat2
+    #        n += 1
+    #state_action_mat = state_action_mat[1:, :]
+
+
+
     X = np.kron(horizon_eye, np.kron(states_eye, action_mat))
+    #X = np.kron(horizon_eye, state_action_mat)
     return X, X_zero_actions
 
 
@@ -41,9 +58,11 @@ def get_preference_probabilities(
     for h in range(horizon):
         for s in range(n_states):
             reward_action_pairs = np.array(
-                list(itertools.combinations(reward[h, s, :], 2))
+                    list(itertools.combinations(reward[h, s, :], 2))
+                    #list(itertools.combinations(reward[h].reshape(-1), 2))
             )
             if h == 0 and s == 0:
+                #if h == 0:
                 prob = 0.5 * (reward_action_pairs[:, 0] - reward_action_pairs[:, 1] + 1)
                 # Y = 2*np.random.binomial(1, p)-1
             else:
@@ -55,22 +74,25 @@ def get_preference_probabilities(
                         * (reward_action_pairs[:, 0] - reward_action_pairs[:, 1] + 1),
                     ]
                 )
-                # Q[index_in_X] =  reward[h, s, action_plus] - reward[h, s, action_minus]
+                    # Q[index_in_X] =  reward[h, s, action_plus] - reward[h, s, action_minus]
     return prob
 
 
 def perform_uniform_allocation(
     X: np.ndarray,
     X_zero_actions: np.ndarray,
+    transitions: np.ndarray,
+    init_state_dist: np.ndarray,
     reward: np.ndarray,
-    horizon: int,
-    n_states: int,
-    n_actions: int,
     eps: float = 0.01,
     delta: float = 0.05,
-    verbose=True,
+    verbose : bool =True,
+    plot: bool = False
 ) -> np.ndarray:
+
+    horizon, n_states, n_actions = reward.shape
     X_combined = np.concatenate([X_zero_actions, X], axis=0)
+    #X_combined = X
     zero_actions = np.zeros(horizon * n_states)
 
     Y = np.zeros(X.shape[0])
@@ -79,9 +101,9 @@ def perform_uniform_allocation(
     n_rounds = int(
         1 + 8 * n_states * n_actions * horizon**3 * np.log(2 / delta) / eps**2
     )
-    n_rounds = 10
-    if step < n_rounds:
-        n_rounds += step - n_rounds % step
+    n_rounds = 40
+    #if step < n_rounds:
+    #    n_rounds += step - n_rounds % step
     if verbose:
         print(f"Performing uniform allocation with eps: {eps:.4f}, delta: {delta:.2f}")
         print(f"Number of rounds: {n_rounds}")
@@ -92,68 +114,107 @@ def perform_uniform_allocation(
     it = tqdm.tqdm(rng) if verbose else rng
 
     # TODO: speed up by replacing loop with binomial with n>1
+    if plot:
+        V=value_iteration(transitions, reward)[1]
+        x=[]
+        y=[]
+
     for r in it:
         Y_round = 2 * np.random.binomial(1, prob) - 1
         Y += Y_round
 
-        if verbose and r % 2 == 1:
+        if r % int(n_rounds/3) == 1:
             Y_intermediate = Y / r
             Y_intermediate = np.concatenate([zero_actions, Y_intermediate])
             r_hat = (
-                np.linalg.inv(X_combined.T @ X_combined) @ X_combined.T @ Y_intermediate
+                np.linalg.pinv(X_combined.T @ X_combined) @ X_combined.T @ Y_intermediate
             )
-            it.set_description(
-                f"Reward mean L1 est. error after {r*step} comparisons: {np.mean(np.abs(r_hat - reward.reshape(-1)))}"
-            )
+            if verbose:
+                it.set_description(
+                    f"Reward mean L1 est. error after {r*step} comparisons: {np.mean(np.abs(r_hat - reward.reshape(-1)))}"
+                )
+            if plot:
+                x.append(r*step)
+                pi_unif = value_iteration(transitions, r_hat.reshape(horizon,n_states,n_actions))[2]
+                V_unif=policy_evaluation(transitions, reward, pi_unif)[1]
+                y.append(init_state_dist@(np.abs(V[0]-V_unif[0])))
 
     Y /= n_rounds
 
     Y = np.concatenate([zero_actions, Y])
-    r_hat = np.linalg.inv(X_combined.T @ X_combined) @ X_combined.T @ Y
+    r_hat = np.linalg.pinv(X_combined.T @ X_combined) @ X_combined.T @ Y
     if verbose:
         print(
             f"Finished uniform allocation with a total number of {n_rounds*horizon*n_states*(n_actions-1)*n_actions/2} comparisons"
         )
-    return r_hat
+    return r_hat, (x,y)
 
 
 def perform_RAGE(
     X: np.ndarray,
     X_zero_actions: np.ndarray,
     reward: np.ndarray,
-    horizon: int,
-    n_states: int,
-    n_actions: int,
-    # reward_hat: np.ndarray,
     transitions: np.ndarray,
     init_state_dist: np.ndarray,
     eps: float = 0.01,
     delta: float = 0.05,
     verbose: bool = True,
     true_uncertainty: bool = False,
+    plot: bool = False,
 ) -> np.ndarray:
-    np.random.seed(42)
+    #np.random.seed(42)
 
     # num_samples = np.ceil(2*16*horizon**4*n_states**2*n_actions*(1/eps)**2*np.log(n_actions/delta))
     # num_samples = np.ceil(uncertainty*2*horizon*n_states*(1/eps)**2*np.log(n_actions/delta))
-    # num_samples = 1000000
+    horizon, n_states, n_actions = reward.shape
     rage_iters = int(np.ceil(np.log(1 / eps)))
-    # rage_iters=2
+    #rage_iters=2
 
     if verbose:
         print(f"Performing RAGE with for {rage_iters} iterations")
 
     X_combined = np.concatenate([X_zero_actions, X], axis=0)
+    #X_combined = X
     rng = range(1, rage_iters+1)
     it = tqdm.tqdm(rng) if verbose else rng
     r_hat = None
     V_hat_target = None
-    sampled = 0
-    step = int(horizon * n_states * n_actions * (n_actions - 1) / 2)
+    step = X.shape[0]
     prob = get_preference_probabilities(reward, horizon, n_states, n_actions)
 
+    # according to theoretical upper bound
+    num_samples_per_iter = tuple(int(
+            8
+            * (2 ** (rage_iter + 1) ** 2)
+            * 16
+            * horizon**2
+            * n_states
+            * n_actions
+            * np.log(rage_iter**2*n_actions**(2*horizon*n_states) / delta)
+        ) for rage_iter in rng)
+
+    # proportional number for each iteration
+    samples_ratio_per_iter = np.array(list(x/sum(num_samples_per_iter) for x in num_samples_per_iter))
+    #unif=np.ones_like(samples_ratio_per_iter)/len(samples_ratio_per_iter)
+    #samples_ratio_per_iter = (samples_ratio_per_iter+unif)/2
+    #samples_ratio_per_iter = tuple(1/len(num_samples_per_iter) for x in num_samples_per_iter)
+
+
+    # according to hand chosen value
+    n_steps=20
+    total_num_samples = n_steps*step
+    num_samples_per_iter = list(int(np.ceil(ratio * total_num_samples)) for ratio in samples_ratio_per_iter)
+    num_samples_per_iter = [x + step - x % step if x % step > 0 else x for x in num_samples_per_iter]
+    num_samples_per_iter = [x + step  if x <= step  else x for x in num_samples_per_iter]
+    num_samples_per_iter[-1] += (total_num_samples - sum(num_samples_per_iter))
+
+    if plot:
+        V=value_iteration(transitions, reward)[1]
+        x=[]
+        y=[]
+
+
     for rage_iter in it:
-        delta_t = delta / rage_iter**2
 
         if r_hat is not None:
             _, V_hat, _ = value_iteration(transitions, r_hat)
@@ -173,65 +234,68 @@ def perform_RAGE(
             verbose,
             true_uncertainty,
         )
-        num_samples = int(
-            8
-            * (2 ** (rage_iter + 1) ** 2)
-            * 16
-            * horizon**3
-            * n_states**2
-            * n_actions
-            * np.log(n_actions / delta_t)
-        )
-        # num_samples = 1000
+        
 
-        if verbose:
-            print(
-                f"RAGE iteration {rage_iter}, uncertainty upper bound {16*horizon**3 * n_states * n_actions}, num samples {num_samples}"
-            )
+        #if verbose:
+        #    print(
+        #        f"RAGE iteration {rage_iter}, uncertainty upper bound {16*horizon**3 * n_states * n_actions}, num samples {num_samples}"
+        #    )
 
-        if num_samples % step > 0:
-            num_samples += step - num_samples % step
+        #if num_samples % step > 0:
+        #    num_samples += step - num_samples % step
 
-        num_samples = 10 * step
-        it_samples = tqdm.tqdm(range(sampled + step, int((rage_iter/rage_iters)*num_samples), step))
-        print(sampled+step,int((rage_iter/rage_iters)*num_samples))
-        for r in it_samples:
-            if r % (2 * step) == step:
-                sampled = r
-                allocation = rounding(design, r)
-                Y = [0] * len(X_zero_actions)
-                X_allocated = []
-                for i in range(len(allocation)):
-                    if allocation[i] > 0:
-                        X_allocated.append(X_combined[i])
-                        Y.append(
-                            (
-                                2
-                                * np.random.binomial(
-                                    allocation[i], prob[i - len(X_zero_actions)]
-                                )
-                                - allocation[i]
-                            )
-                            / allocation[i]
+        if (plot or verbose) and rage_iter == rage_iters:
+            rng = range(step, num_samples_per_iter[rage_iter-1], step*int(n_steps/10))
+            it = tqdm.tqdm(rng) if verbose else rng
+            for r in it:
+                #if (sum(num_samples_per_iter[:rage_iter-1])+r) % (step*int(total_num_samples/(step*10))) == step:
+                if plot or verbose:
+                    r_hat = get_r_hat_from_design(r, design, prob, X_combined, X_zero_actions)
+                    if verbose:
+                        it.set_description(
+                            f"Reward mean L1 est. error after {sum(num_samples_per_iter[:rage_iter-1])+r} comparisons: {np.mean(np.abs(r_hat - reward.reshape(-1)))}"
                         )
-                Y = np.array(Y)
-
-                X_allocated_combined = np.concatenate(
-                    [X_zero_actions, X_allocated], axis=0
-                )
-                r_hat = (
-                    np.linalg.pinv(X_allocated_combined.T @ X_allocated_combined)
-                    @ X_allocated_combined.T
-                    @ Y
-                )
-                it.set_description(
-                    f"Reward mean L1 est. error after {sampled} comparisons: {np.mean(np.abs(r_hat - reward.reshape(-1)))}"
-                )
+                    if plot:
+                        x.append(sum(num_samples_per_iter[:rage_iter-1])+r)
+                        pi_rage = value_iteration(transitions, r_hat.reshape(horizon,n_states,n_actions))[2]
+                        V_rage=policy_evaluation(transitions, reward, pi_rage)[1]
+                        y.append(init_state_dist@(np.abs(V[0]-V_rage[0])))
+        
+        r_hat = get_r_hat_from_design(num_samples_per_iter[rage_iter-1], design, prob, X_combined, X_zero_actions)
 
         r_hat = r_hat.reshape((horizon, n_states, n_actions))
 
-    return r_hat
 
+    return r_hat, (x,y)
+
+def get_r_hat_from_design(num_samples, design, prob, X_combined, X_zero_actions):
+    allocation = rounding(design, num_samples)
+    Y = [0] * len(X_zero_actions)
+    X_allocated = []
+    for i in range(len(allocation)):
+        if allocation[i] > 0:
+            X_allocated.append(X_combined[i+len(X_zero_actions)])
+            Y.append(
+                (
+                    2
+                    * np.random.binomial(
+                        allocation[i], prob[i]
+                    )
+                    - allocation[i]
+                )
+                / allocation[i]
+            )
+    Y = np.array(Y)
+
+    X_allocated_combined = np.concatenate(
+           [X_zero_actions, X_allocated], axis=0
+    )
+    r_hat = (
+           np.linalg.pinv(X_allocated_combined.T @ X_allocated_combined)
+           @ X_allocated_combined.T
+           @ Y
+    )
+    return r_hat
 
 def rounding(design, num_samples):
     # TODO: O(d) efficient rounding
@@ -268,18 +332,21 @@ def get_optimal_design(
     verbose: bool = True,
     true_uncertainty: bool = False,
 ) -> np.ndarray:
-    design = np.ones(len(X_combined))
+
+    design = np.ones(len(X))
     design /= design.sum()
 
     max_iter = 100
     d = horizon * n_states * n_actions
     batch_size = min(d, 20)
+    #batch_size=30
+    batch_size=1
 
     rng = range(1, max_iter)
     it = tqdm.tqdm(rng) if verbose else rng
 
-    for iter in it:
-        design_inv = np.linalg.inv(X_combined.T @ np.diag(design) @ X_combined)
+    for fw_iter in it:
+        design_inv = np.linalg.pinv(X.T @ np.diag(design) @ X)
         # compute gradient with respect to lambda and solve linear problem
         g_indices = []
         for i in range(batch_size):
@@ -296,10 +363,10 @@ def get_optimal_design(
             g = ((X @ design_inv @ (y1 - y2)) * (X @ design_inv @ (y1 - y2))).flatten()
             g_idx = np.argmax(g)
             # adjust idx to reflect zero actions
-            g_idx = g_idx + len(X_combined) - len(X)
+            #g_idx = g_idx + len(X_combined) - len(X)
             g_indices.append(g_idx)
 
-        if true_uncertainty and iter % 10 == 1:
+        if true_uncertainty and fw_iter % 3 == 1:
             true_uncertainty = get_true_uncertainty(
                 transitions,
                 init_state_dist,
@@ -314,18 +381,19 @@ def get_optimal_design(
             # print(f'Current estimated uncertainty: {last_uncertainty}')
 
         # perform frank-wolfe update with fixed stepsize
-        gamma = (2 / (iter + 2)) / d**2
-        relative_sum = 0
+        gamma = (2 / (fw_iter + 2)) / d
+        #relative_sum = 0
         for g_idx in g_indices:
             design_update = -gamma * design
             design_update[g_idx] += gamma
             design += design_update
-            relative_sum += np.linalg.norm(design_update) / (np.linalg.norm(design))
 
-        relative = relative_sum / batch_size
+        relative = np.linalg.norm(design_update) / (np.linalg.norm(design))
 
-        if relative < 0.0001:  # stop if change in last step is small
-            print(f"Frank Wolfe detected relative < 0.0001, aborting")
+
+        if relative < 0.01:
+            if verbose:
+                print(f"Frank Wolfe detected relative < 0.01, aborting")
             if true_uncertainty:
                 true_uncertainty = get_true_uncertainty(
                     transitions,
@@ -340,10 +408,12 @@ def get_optimal_design(
                 print(f"Current true uncertainty: {true_uncertainty}")
             break
 
-    print(f"Frank Wolfe finished after iter {iter}")
-    idx_fix = np.where(design < 1e-5)[0]
+    if verbose:
+        print(f"Frank Wolfe finished after iter {fw_iter}")
+    #idx_fix = np.where(design < 1e-5)[0]
+    idx_fix = np.where(design < 1e-10)[0]
     # drop zero actions coefficients as we don't query them
-    idx_fix = np.concatenate([idx_fix, np.array(range(len(X_combined) - len(X)))])
+    #idx_fix = np.concatenate([idx_fix, np.array(range(len(X_combined) - len(X)))])
 
     drop_total = design[idx_fix].sum()
     design[idx_fix] = 0
@@ -363,7 +433,7 @@ def get_constrained_policy(
     tol = 0.01
     # TODO: set tol as a function of epsilon
 
-    pi = value_iteration(transitions, rew + right * r_hat)[2]
+    pi = value_iteration(transitions, rew + right * r_hat, rewards_tie_breaker=-r_hat)[2]
     while (
         policy_evaluation(transitions, r_hat, pi)[1][0] @ init_state_dist < V_hat_target
     ):
@@ -371,11 +441,11 @@ def get_constrained_policy(
             right = 1
         else:
             right *= 2
-        pi = value_iteration(transitions, rew + right * r_hat)[2]
+        pi = value_iteration(transitions, rew + right * r_hat, rewards_tie_breaker=-r_hat)[2]
 
     while right - left > tol:
         mid = (right + left) / 2
-        pi = value_iteration(transitions, rew + mid * r_hat)[2]
+        pi = value_iteration(transitions, rew + mid * r_hat, rewards_tie_breaker=-r_hat)[2]
         V_hat_current = (
             policy_evaluation(transitions, r_hat, pi)[1][0] @ init_state_dist
         )
@@ -385,7 +455,10 @@ def get_constrained_policy(
             right = mid
 
     if right != 0:
-        pi = value_iteration(transitions, rew + right * r_hat)[2]
+        pi = value_iteration(transitions, rew + right * r_hat, rewards_tie_breaker=-r_hat)[2]
+
+    if not policy_evaluation(transitions, r_hat, pi)[1][0] @ init_state_dist >= V_hat_target:
+        import ipdb; ipdb.set_trace()
 
     assert (
         policy_evaluation(transitions, r_hat, pi)[1][0] @ init_state_dist
@@ -405,10 +478,13 @@ def get_opt_y1_y2(
     n_actions: int,
 ):
     eigenvalues, eigenvectors = np.linalg.eigh(design_inv)
+
+    eigenvalues = np.maximum(eigenvalues, 0)
+    eigenvalues[:-5]=0
+
     v = eigenvectors[
         np.random.choice(
-            np.arange(len(eigenvalues)), p=eigenvalues / np.sum(eigenvalues)
-        )
+            np.arange(len(eigenvalues)), p=eigenvalues / eigenvalues.sum())
     ]
     v = v.reshape((horizon, n_states, n_actions))
     pi_y1 = (
@@ -452,43 +528,41 @@ def get_true_uncertainty(
         return [0] * (pad - len(digits[::-1])) + digits[::-1]
 
     largest = 0
-    for i in range(n_actions ** (n_states * horizon)):
-        pi_y1 = np.array(
-            list((int2base(i, n_actions, horizon * n_states))), dtype=int
-        ).reshape((horizon, n_states))
-        if (
-            V_hat_target is not None
-            and policy_evaluation(transitions, r_hat, pi_y1)[1][0] @ init_state_dist
-            >= V_hat_target
-        ):
-            for j in range(i, n_actions ** (n_states * horizon)):
-                pi_y2 = np.array(
-                    list((int2base(j, n_actions, horizon * n_states))), dtype=int
-                ).reshape((horizon, n_states))
-                if (
-                    V_hat_target is not None
-                    and policy_evaluation(transitions, r_hat, pi_y2)[1][0]
-                    @ init_state_dist
-                    >= V_hat_target
-                ):
-                    y1 = vectorize_policy(
-                        pi_y1,
-                        transitions,
-                        init_state_dist,
-                        horizon,
-                        n_states,
-                        n_actions,
-                    )
-                    y2 = vectorize_policy(
-                        pi_y2,
-                        transitions,
-                        init_state_dist,
-                        horizon,
-                        n_states,
-                        n_actions,
-                    )
-                    if (y1 - y2).T @ design_inv @ (y1 - y2) > largest:
-                        largest = (y1 - y2).T @ design_inv @ (y1 - y2)
+    if V_hat_target is not None:
+        for i in range(n_actions ** (n_states * horizon)):
+            pi_y1 = np.array(
+                list((int2base(i, n_actions, horizon * n_states))), dtype=int
+            ).reshape((horizon, n_states))
+            if (
+                policy_evaluation(transitions, r_hat, pi_y1)[1][0] @ init_state_dist
+                >= V_hat_target
+            ):
+                for j in range(i, n_actions ** (n_states * horizon)):
+                    pi_y2 = np.array(
+                        list((int2base(j, n_actions, horizon * n_states))), dtype=int
+                    ).reshape((horizon, n_states))
+                    if (policy_evaluation(transitions, r_hat, pi_y2)[1][0]
+                        @ init_state_dist
+                        >= V_hat_target
+                    ):
+                        y1 = vectorize_policy(
+                            pi_y1,
+                            transitions,
+                            init_state_dist,
+                            horizon,
+                            n_states,
+                            n_actions,
+                        )
+                        y2 = vectorize_policy(
+                            pi_y2,
+                            transitions,
+                            init_state_dist,
+                            horizon,
+                            n_states,
+                            n_actions,
+                        )
+                        if (y1 - y2).T @ design_inv @ (y1 - y2) > largest:
+                            largest = (y1 - y2).T @ design_inv @ (y1 - y2)
     return largest
 
 

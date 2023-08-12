@@ -15,8 +15,10 @@ class Gridworld:
         reward: np.ndarray = None,
         p_type: str = P_TYPES[0],
         p_fail: float = 0.1,
+        zero_action:bool = True,
     ):
 
+        self.zero_action = zero_action
         self.size = 3
         self.n_states = int(self.size**2)
         self.n_actions = 4
@@ -48,10 +50,27 @@ class Gridworld:
     def get_mdp(self) -> Tuple[int, int, np.ndarray, np.ndarray, int, np.ndarray]:
         transitions = self.get_transition_model()
         reward = self.get_reward()
+
+        # normalization assumption
+        reward -= 0.5
+
         horizon = self.horizon
         init_state_dist = np.ones(self.n_states)
         init_state_dist[self.goal_state] = 0
         init_state_dist /= init_state_dist.sum()
+
+
+        if self.zero_action:
+            reward_new = np.zeros((self.horizon, self.n_states, self.n_actions+1))
+            reward_new[:,:,1:] = reward
+            transitions_new = np.zeros((self.horizon, self.n_states, self.n_actions+1, self.n_states))
+            transitions_new[:,:,1:,:] = transitions
+            for state in range(self.n_states):
+                transitions_new[:,state,0,state] = 1
+
+            reward = reward_new
+            transitions = transitions_new
+
         return transitions, reward, init_state_dist
 
     def get_reward(self) -> np.ndarray:
