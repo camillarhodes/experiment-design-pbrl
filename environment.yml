@@ -37,12 +37,36 @@ dependencies:
   - stack_data=0.2.0=pyhd3eb1b0_0
   - tk=8.6.12=h1ccaba5_0
   - traitlets=5.7.1=py311h06a4308_0
-  - tzdata=2023c=h04d1e81_0
   - wcwidth=0.2.5=pyhd3eb1b0_0
   - wheel=0.38.4=py311h06a4308_0
   - xz=5.4.2=h5eee18b_0
   - zlib=1.2.13=h5eee18b_0
   - pip:
+    - black==23.3.0
+    - click==8.1.4
+    - cvxpy==1.3.2
+    - dill==0.3.6
+    - ecos==2.0.12
+    - ipdb==0.13.13
+    - klepto==0.2.3
+    - mpmath==1.3.0
+    - mypy-extensions==1.0.0
+    - mystic==0.4.0
     - numpy==1.25.0
+    - osqp==0.6.3
+    - packaging==23.1
+    - pandas==2.0.3
+    - pathspec==0.11.1
+    - platformdirs==3.8.1
+    - plotly==5.15.0
+    - pox==0.3.2
+    - python-dateutil==2.8.2
+    - pytz==2023.3
+    - qdldl==0.1.7.post0
+    - scipy==1.11.1
+    - scs==3.2.3
+    - sympy==1.12
+    - tenacity==8.2.2
     - tqdm==4.65.0
+    - tzdata==2023.3
 prefix: /home/guy/anaconda3/envs/pbrl

@@ -1,20 +1,45 @@
 asttokens @ file:///opt/conda/conda-bld/asttokens_1646925590279/work
 backcall @ file:///home/ktietz/src/ci/backcall_1611930011877/work
+black==23.3.0
+click==8.1.4
+cvxpy==1.3.2
 decorator @ file:///opt/conda/conda-bld/decorator_1643638310831/work
+dill==0.3.6
+ecos==2.0.12
 executing @ file:///opt/conda/conda-bld/executing_1646925071911/work
+ipdb==0.13.13
 ipython @ file:///croot/ipython_1680701871216/work
 jedi @ file:///work/ci_py311_2/jedi_1679336495545/work
+klepto==0.2.3
 matplotlib-inline @ file:///work/ci_py311/matplotlib-inline_1676823841154/work
+mpmath==1.3.0
+mypy-extensions==1.0.0
+mystic==0.4.0
 numpy==1.25.0
+osqp==0.6.3
+packaging==23.1
+pandas==2.0.3
 parso @ file:///opt/conda/conda-bld/parso_1641458642106/work
+pathspec==0.11.1
 pexpect @ file:///tmp/build/80754af9/pexpect_1605563209008/work
 pickleshare @ file:///tmp/build/80754af9/pickleshare_1606932040724/work
+platformdirs==3.8.1
+plotly==5.15.0
+pox==0.3.2
 prompt-toolkit @ file:///work/ci_py311/prompt-toolkit_1676824857154/work
 ptyprocess @ file:///tmp/build/80754af9/ptyprocess_1609355006118/work/dist/ptyprocess-0.7.0-py2.py3-none-any.whl
 pure-eval @ file:///opt/conda/conda-bld/pure_eval_1646925070566/work
 Pygments @ file:///croot/pygments_1684279966437/work
+python-dateutil==2.8.2
+pytz==2023.3
+qdldl==0.1.7.post0
+scipy==1.11.1
+scs==3.2.3
 six @ file:///tmp/build/80754af9/six_1644875935023/work
 stack-data @ file:///opt/conda/conda-bld/stack_data_1646927590127/work
+sympy==1.12
+tenacity==8.2.2
 tqdm==4.65.0
 traitlets @ file:///work/ci_py311/traitlets_1676823305040/work
+tzdata==2023.3
 wcwidth @ file:///Users/ktietz/demo/mc3/conda-bld/wcwidth_1629357192024/work
