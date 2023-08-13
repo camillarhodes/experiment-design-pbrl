@@ -1,7 +1,13 @@
+import sys
+sys.path.insert(0, '..')
+
 import numpy as np
 import cvxpy as cp
+import argparse
 import tqdm
 import itertools
+
+from envs import random_mdp, Gridworld
 
 from typing import Tuple, Optional
 from helpers import check_transitions_rewards
@@ -87,7 +93,8 @@ def perform_uniform_allocation(
     eps: float = 0.01,
     delta: float = 0.05,
     verbose : bool =True,
-    plot: bool = False
+    plot: bool = False,
+    n_steps:int = 20
 ) -> np.ndarray:
 
     horizon, n_states, n_actions = reward.shape
@@ -101,7 +108,7 @@ def perform_uniform_allocation(
     n_rounds = int(
         1 + 8 * n_states * n_actions * horizon**3 * np.log(2 / delta) / eps**2
     )
-    n_rounds = 40
+    n_rounds = n_steps
     #if step < n_rounds:
     #    n_rounds += step - n_rounds % step
     if verbose:
@@ -161,6 +168,7 @@ def perform_RAGE(
     verbose: bool = True,
     true_uncertainty: bool = False,
     plot: bool = False,
+    n_steps:int = 20,
 ) -> np.ndarray:
     #np.random.seed(42)
 
@@ -201,7 +209,6 @@ def perform_RAGE(
 
 
     # according to hand chosen value
-    n_steps=20
     total_num_samples = n_steps*step
     num_samples_per_iter = list(int(np.ceil(ratio * total_num_samples)) for ratio in samples_ratio_per_iter)
     num_samples_per_iter = [x + step - x % step if x % step > 0 else x for x in num_samples_per_iter]
@@ -600,6 +607,37 @@ def vectorize_policy(
         y_prev_state_action_dist = y_current_state_action_dist
 
     return y
+
+
+def main(args):
+    if args.env == 'random':
+        trans, reward, init = random_mdp(args.horizon, args.n_states, args.n_actions, non_reachable_states=args.nrs)
+        X, X_zero_actions = get_X(*reward.shape)
+        total = 0
+        for i in tqdm.tqdm(range(args.n_trials)): 
+            if args.algo == 'rage':
+                r_rage,plot=perform_RAGE(X,X_zero_actions, reward, trans,init,true_uncertainty=False,plot=True,eps=args.eps,verbose=False, n_steps=args.n_steps) 
+            elif args.algo == 'unif':
+                r_unif, plot =perform_uniform_allocation(X,X_zero_actions, trans,init,reward,plot=True,verbose=False, n_steps=args.n_steps)
+            total += np.array(plot[1])
+        total /= args.n_trials
+        print(plot[0])
+        print(total)
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description = 'Say hello')
+    parser.add_argument('-v', '--verbose', action=argparse.BooleanOptionalAction)
+    parser.add_argument('--algo')
+    parser.add_argument('--eps', type=float)
+    parser.add_argument('--n_trials', type=int)
+    parser.add_argument('--env')
+    parser.add_argument('--n_actions', type=int)
+    parser.add_argument('--n_states', type=int)
+    parser.add_argument('--horizon', type=int)
+    parser.add_argument('--nrs', type=int)
+    parser.add_argument('--n_steps', type=int)
+    args = parser.parse_args()
+    main(args)
 
 
 #class Optimizer:
