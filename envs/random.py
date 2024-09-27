@@ -5,9 +5,11 @@ from typing import Tuple
 
 
 def random_mdp(
-        horizon:int, n_states: int, n_actions: int, non_reachable_states: int = 0, zero_action: bool = True
+        horizon:int, n_states: int, n_actions: int, non_reachable_states: int = 0, zero_action: bool = False, seed = False
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
+    if seed:
+        np.random.seed(seed)
     # Transition model
     if non_reachable_states > 0:
         transitions = np.random.random((horizon, n_states, n_actions, n_states))
@@ -16,12 +18,12 @@ def random_mdp(
         )
         eps = 1e-9
         for s in nr_states:
-            transitions[:, :, s] = eps
+            transitions[:, :, :, s] = 1e-9
     else:
         transitions = np.random.random((horizon, n_states, n_actions, n_states))
 
 
-    reward = np.random.random((horizon, n_states, n_actions))
+    reward = np.random.random(n_states)
     reward -= 0.5
     #reward /= 2
 

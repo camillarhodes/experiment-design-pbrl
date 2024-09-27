@@ -15,21 +15,45 @@ class Gridworld:
         reward: np.ndarray = None,
         p_type: str = P_TYPES[0],
         p_fail: float = 0.1,
-        zero_action:bool = True,
+        zero_action:bool = False,
+        size:int = 3,
+        seed:bool = False
     ):
+        if seed:
+            np.random.seed(seed)
 
         self.zero_action = zero_action
-        self.size = 3
+        self.size = size
         self.n_states = int(self.size**2)
         self.n_actions = 4
-        self.init_state = 1  # corresponding to (0, 1)
-        self.goal_state = 7  # corresponding to (2, 1)
+        self.init_state = 0  
+        #self.init_state = 9  
+        #self.goal_state = 7  
+        self.goal_state = 3  
         self.horizon = horizon
         self.fail_prob = p_fail
 
         # Obstacle
-        self.s_obst = 4  # Central cell
-        self.a_obst = 1  # Right
+        #self.obstacles = [
+        #    (1, (1, 2)),    # State 1: block right and down, forcing left
+        #    (4, (2,)),      # State 4: block down, allowing only left or right
+        #    (6, (1,)),      # State 6: block right, preventing direct access to goal
+        #    (7, (0, 1, 2, 3)),  # State 7 (goal): block all movements
+        #]
+        #self.obstacles = [(1, (0,1,2,3 ))]
+        self.obstacles = [
+            (0, (1,)),   # Block right movement from state 0
+            (4, (1,)),   # Block right movement from state 4
+            (8, (1,)),   # Block right movement from state 8
+            # State 12 is not blocked, allowing movement to the right
+        ]
+
+        #self.obstacles = []
+        #self.s_obst = [1]  # Central cell
+        #self.s_obst = [0]  # Central cell
+        #self.a_obst = 1  # Right
+        #self.a_obst = [0,1,3]  # Right
+        #self.a_obst = [1,2,3]  # Right
         self.p_obst = p_obst
 
         self.reward = reward
@@ -59,27 +83,18 @@ class Gridworld:
         init_state_dist[self.goal_state] = 0
         init_state_dist /= init_state_dist.sum()
 
+        init_state_dist = np.eye(self.n_states)[self.init_state]
 
-        if self.zero_action:
-            reward_new = np.zeros((self.horizon, self.n_states, self.n_actions+1))
-            reward_new[:,:,1:] = reward
-            transitions_new = np.zeros((self.horizon, self.n_states, self.n_actions+1, self.n_states))
-            transitions_new[:,:,1:,:] = transitions
-            for state in range(self.n_states):
-                transitions_new[:,state,0,state] = 1
-
-            reward = reward_new
-            transitions = transitions_new
-
+        
         return transitions, reward, init_state_dist
 
     def get_reward(self) -> np.ndarray:
         if self.reward is not None:
             return self.reward
-        reward = np.zeros((1, self.n_states, self.n_actions))
+        reward = np.zeros( self.n_states)
         # R[self.s_obst, :] = -1 * np.ones((self.A,))
-        reward[0, self.goal_state, :] = np.ones((self.n_actions,))
-        reward = np.repeat(reward, self.horizon, axis=0)
+        reward[self.goal_state] = 1
+        #reward[0, :, :] = np.random.rand(self.n_states,self.n_actions)
         return reward
 
     def get_transition_model(self) -> np.ndarray:
@@ -100,7 +115,9 @@ class Gridworld:
         for s in range(self.n_states):
             for a in range(self.n_actions):
                 s_new = self._compute_next_state(s, a)
-                if s != self.s_obst or a != self.a_obst:
+                #if s != self.s_obst or a != self.a_obst:
+                #if s not in self.s_obst or a not in self.a_obst:
+                if not any(s == state and a in actions for state, actions in self.obstacles):
                     # The agent goes in s_new if the action doesn't fail
                     transitions[:, s, a, s_new] += 1 - self.fail_prob
                 else:
@@ -117,8 +134,8 @@ class Gridworld:
                     )  # a_fail is taken with prob. p/4
 
         # The goal state is terminal -> only self-loop transitions
-        transitions[:, self.goal_state, :, :] = 0
-        transitions[:, self.goal_state, :, self.goal_state] = 1
+        #transitions[:, self.goal_state, :, :] = 0
+        #transitions[:, self.goal_state, :, self.goal_state] = 1
 
         return transitions
 

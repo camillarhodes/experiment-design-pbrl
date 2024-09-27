@@ -35,6 +35,8 @@ def chain_mdp(
     reward = np.ones((horizon, n_states, n_actions))
     reward[:, negative_state, :] = 0
 
+    reward -= 0.5
+
     init_state_dist = np.ones(n_states) / n_states
 
     return transitions, reward, init_state_dist

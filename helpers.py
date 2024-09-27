@@ -1,4 +1,6 @@
 import numpy as np
+import torch
+torch.manual_seed(0)
 
 from typing import Tuple
 
@@ -19,6 +21,12 @@ def tie_breaker_argmax(array, array_tie_breaker, axis=None):
         axis=axis,
     )
 
+def entropy(probabilities):
+    # Filter out zero probabilities
+    non_zero_probs = probabilities[probabilities > 0]
+    
+    # Calculate entropy only for non-zero probabilities
+    return -torch.sum(non_zero_probs * torch.log2(non_zero_probs))
 
 def check_transitions_rewards(
     transitions: np.ndarray, rewards: np.ndarray
@@ -38,6 +46,8 @@ def check_transitions_rewards(
 
     return horizon, n_states, n_actions
 
+def to_torch(lst):
+    return [torch.from_numpy(np.asarray(x)).clone().float() if isinstance(x, (np.ndarray, list)) else x.clone().detach() for x in lst]
 
 def ensure_policy_stochastic(policy, horizon, n_states, n_actions):
     if policy.shape == (horizon, n_states):
@@ -45,19 +55,124 @@ def ensure_policy_stochastic(policy, horizon, n_states, n_actions):
     assert policy.shape == (horizon, n_states, n_actions)
     return policy
 
+def sample_trajectory_from_visitation(d, mdp, init_state_dist):
+    trajectory_states = []
+    trajectory_actions = []
 
-def get_hoeffding_ci(
-    n_states: int, n_actions: int, horizon: int, sample_count: np.ndarray, delta: float
-) -> np.ndarray:
-    sample_count = np.maximum(sample_count, 1)
-    ci = 2 * np.sqrt(
-        2
-        * np.log(24 * n_states * n_actions * horizon * np.square(sample_count) / delta)
-        / sample_count
+    horizon, n_states, n_actions, _ = mdp.shape
+
+    if len(d.shape) == 1:
+        d = d.reshape((horizon,n_states,n_actions))
+
+    # Sample initial state
+    current_state = torch.multinomial(init_state_dist, 1).item()
+    trajectory_states.append(current_state)
+
+    for h in range(horizon):
+        # Get the state-action visitation measure for the current state at timestep h
+        state_action_probs = d[h, current_state, :]
+
+        # Sample the action based on the visitation measure
+        action = torch.multinomial(state_action_probs, 1).item()
+        trajectory_actions.append(action)
+
+        # Get the transition probabilities for the current state and action
+        transition_probs = mdp[h, current_state, action, :]
+
+        # Sample the next state based on the transition probabilities
+        next_state = torch.multinomial(transition_probs, 1).item()
+        trajectory_states.append(next_state)
+
+        # Update the current state
+        current_state = next_state
+
+    return trajectory_states, trajectory_actions
+
+def sample_trajectory(mdp, pi, init_state_dist, horizon, n_states):
+    trajectory_states = []
+    trajectory_actions = []
+
+    current_state = np.random.multinomial(init_state_dist, 1).item()
+    trajectory_states.append(current_state)
+
+    for h in range(horizon):
+        action = pi[h, current_state].item()
+        trajectory_actions.append(action)
+
+        next_state = np.random.multinomial(mdp[h, current_state, action, :], 1).item()
+        trajectory_states.append(next_state)
+
+        current_state = next_state
+
+    return trajectory_states, trajectory_actions
+
+def vectorize_policy(
+    pi: torch.Tensor,
+    transitions: torch.Tensor,
+    init_state_dist: torch.Tensor,
+    horizon: int,
+    n_states: int,
+    n_actions: int,
+):
+    y = torch.zeros((horizon * n_states * n_actions))
+
+    one_hot_actions = torch.eye(n_actions)
+
+    y_prev_state_action_dist = (
+        one_hot_actions[pi[0]] * init_state_dist[:, None]
+    ).reshape(-1)
+    y[: n_states * n_actions] = y_prev_state_action_dist
+
+    transitions = transitions.reshape((horizon, n_states * n_actions, n_states))
+
+    for h in range(1, horizon):
+        y_current_state_dist = y_prev_state_action_dist @ transitions[h - 1]
+
+        y_current_state_action_dist = (
+            one_hot_actions[pi[h]] * y_current_state_dist[:, None]
+        ).reshape(-1)
+
+        y[
+            h * n_states * n_actions : (h + 1) * n_states * n_actions
+        ] = y_current_state_action_dist
+
+        y_prev_state_action_dist = y_current_state_action_dist
+
+    return y
+
+def vectorize_random_policy(
+    transitions: torch.Tensor,
+    init_state_dist: torch.Tensor,
+    horizon: int,
+    n_states: int,
+    n_actions: int,
+):
+    y = torch.zeros((horizon * n_states * n_actions))
+    
+    # For a uniformly random policy, the action distribution is uniform
+    uniform_action_dist = torch.ones(n_actions) / n_actions
+    
+    # Initial state-action distribution
+    y_prev_state_action_dist = (
+        uniform_action_dist.repeat(n_states) * init_state_dist.repeat_interleave(n_actions)
     )
-    ci *= horizon - np.arange(horizon).reshape((horizon, 1, 1))
-    return ci
-
+    y[: n_states * n_actions] = y_prev_state_action_dist
+    
+    transitions = transitions.reshape((horizon, n_states * n_actions, n_states))
+    
+    for h in range(1, horizon):
+        # Compute next state distribution
+        y_current_state_dist = y_prev_state_action_dist @ transitions[h - 1]
+        
+        # Compute next state-action distribution (uniform over actions)
+        y_current_state_action_dist = (
+            uniform_action_dist.repeat(n_states) * y_current_state_dist.repeat_interleave(n_actions)
+        )
+        
+        y[h * n_states * n_actions : (h + 1) * n_states * n_actions] = y_current_state_action_dist
+        y_prev_state_action_dist = y_current_state_action_dist
+    
+    return y
 
 def fixed_n_rounding(allocation, N):
     """Rounding procedure to ensure the sum of allocation is N."""
@@ -75,3 +190,7 @@ def fixed_n_rounding(allocation, N):
             allocation[where_support[j]] += 1
     allocation = allocation.reshape(allocation_shape)
     return allocation
+
+def format_func(value, tick_number):
+    exponent = int(np.log2(value))
+    return f'$2^{{{exponent}}}$'
