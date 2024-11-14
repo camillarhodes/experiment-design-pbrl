@@ -140,21 +140,27 @@ def vectorize_policy(
 
     return y
 
-def vectorize_random_policy(
+def vectorize_uniform_policy(
     transitions: torch.Tensor,
     init_state_dist: torch.Tensor,
     horizon: int,
     n_states: int,
     n_actions: int,
+    random_policy: bool = False
 ):
     y = torch.zeros((horizon * n_states * n_actions))
     
-    # For a uniformly random policy, the action distribution is uniform
-    uniform_action_dist = torch.ones(n_actions) / n_actions
+    if random_policy:
+        # Sample a random policy
+        random_policy_probs = torch.rand((n_states, n_actions))
+        random_policy_probs /= random_policy_probs.sum(dim=1, keepdim=True)
+    else:
+        # For a uniformly random policy, the action distribution is uniform
+        random_policy_probs = torch.ones((n_states, n_actions)) / n_actions
     
     # Initial state-action distribution
     y_prev_state_action_dist = (
-        uniform_action_dist.repeat(n_states) * init_state_dist.repeat_interleave(n_actions)
+        random_policy_probs.reshape(-1) * init_state_dist.repeat_interleave(n_actions)
     )
     y[: n_states * n_actions] = y_prev_state_action_dist
     
@@ -164,16 +170,15 @@ def vectorize_random_policy(
         # Compute next state distribution
         y_current_state_dist = y_prev_state_action_dist @ transitions[h - 1]
         
-        # Compute next state-action distribution (uniform over actions)
+        # Compute next state-action distribution
         y_current_state_action_dist = (
-            uniform_action_dist.repeat(n_states) * y_current_state_dist.repeat_interleave(n_actions)
+            random_policy_probs.reshape(-1) * y_current_state_dist.repeat_interleave(n_actions)
         )
         
         y[h * n_states * n_actions : (h + 1) * n_states * n_actions] = y_current_state_action_dist
         y_prev_state_action_dist = y_current_state_action_dist
     
     return y
-
 def fixed_n_rounding(allocation, N):
     """Rounding procedure to ensure the sum of allocation is N."""
     allocation_shape = allocation.shape

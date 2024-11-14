@@ -43,8 +43,10 @@ class Gridworld:
         #self.obstacles = [(1, (0,1,2,3 ))]
         self.obstacles = [
             (0, (1,)),   # Block right movement from state 0
-            (4, (1,)),   # Block right movement from state 4
-            (8, (1,)),   # Block right movement from state 8
+            (3, (1,)),   # Block right movement from state 4
+            #(6, (1,)),   # Block right movement from state 8
+            (7, (1,2,3)),   # Block right movement from state 8
+            #(4, (1,2,3)),   # Block right movement from state 8
             # State 12 is not blocked, allowing movement to the right
         ]
 
