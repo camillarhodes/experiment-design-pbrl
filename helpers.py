@@ -1,6 +1,8 @@
 import numpy as np
 import torch
-torch.manual_seed(0)
+
+def set_helpers_seed(seed):
+    torch.manual_seed(seed)
 
 from typing import Tuple
 
@@ -21,12 +23,6 @@ def tie_breaker_argmax(array, array_tie_breaker, axis=None):
         axis=axis,
     )
 
-def entropy(probabilities):
-    # Filter out zero probabilities
-    non_zero_probs = probabilities[probabilities > 0]
-    
-    # Calculate entropy only for non-zero probabilities
-    return -torch.sum(non_zero_probs * torch.log2(non_zero_probs))
 
 def check_transitions_rewards(
     transitions: np.ndarray, rewards: np.ndarray

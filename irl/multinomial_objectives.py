@@ -2,6 +2,37 @@ import torch
 import numpy as np
 from typing import List, Tuple
 
+def func_orig_grad_auto(d_list: List[torch.Tensor],
+                   phi: torch.Tensor,
+                   horizon: int,
+                   n_states: int,
+                   n_actions: int,
+                   T: int,
+                   lambda_reg) -> List[torch.Tensor]:
+    """
+    Gradient of original K-way objective function using automatic differentiation
+    Returns gradients for each distribution
+    
+    Args:
+        phi: Feature matrix, either:
+            - shape (n_states, feature_dim) for state-only features
+            - shape (n_states * n_actions, feature_dim) for state-action features
+    """
+    # Create copies of inputs that require gradients
+    d_list_grad = [d.detach().clone().requires_grad_(True) for d in d_list]
+    
+    # Compute objective
+    obj = func_orig(d_list_grad, phi, horizon, n_states, n_actions, T, lambda_reg)
+    
+    # Compute gradients
+    grad_list = []
+    for d in d_list_grad:
+        grad = torch.autograd.grad(obj, d, retain_graph=True)[0]
+        grad_list.append(grad)
+    
+    return grad_list
+
+
 def func_orig(d_list: List[torch.Tensor],
              phi: torch.Tensor,
              horizon: int,

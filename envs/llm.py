@@ -138,7 +138,7 @@ def llm_simple_mdp(
 
     # Load tokens
     with open(token_file, 'r') as file:
-        unique_tokens = list(set(line.strip() for line in file))
+        unique_tokens = sorted(set(line.strip() for line in file))
     n_actions = len(unique_tokens)
     n_states = horizon
 
@@ -166,13 +166,15 @@ def llm_simple_mdp(
         # Center embeddings and apply PCA if needed
         embeddings_mean = token_embeddings_matrix.mean(dim=0, keepdim=True)
         centered_embeddings = token_embeddings_matrix - embeddings_mean
-        theta = theta - embeddings_mean.squeeze()
+        #theta = theta - embeddings_mean.squeeze()
+        theta = theta.double()
         
         if pca_dim != 768:
             U, S, V = torch.svd(centered_embeddings)
             token_embeddings_matrix = centered_embeddings @ V[:, :pca_dim]
             theta = V[:, :pca_dim].T @ theta
             
+
         # Create dictionary from reduced embeddings
         token_embeddings = {token: emb for token, emb in zip(unique_tokens, token_embeddings_matrix)}
         
